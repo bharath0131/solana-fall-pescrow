@@ -61,6 +61,8 @@ mod tests {
     }
 
     #[test]
+    #[test]
+
     pub fn test_make_instruction() {
         let (mut svm, payer) = setup();
 
@@ -213,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_take_instruction() {
+    pub fn test_take_insufficient_funds() {
         let (mut svm, maker) = setup();
         let taker = Keypair::new();
 
@@ -248,7 +250,7 @@ mod tests {
             .send()
             .unwrap();
 
-        MintTo::new(&mut svm, &maker, &mint_b, &taker_ata_b, 1_000_000_000)
+        MintTo::new(&mut svm, &maker, &mint_b, &taker_ata_b, 50_000_000)
             .send()
             .unwrap();
 
@@ -297,7 +299,13 @@ mod tests {
         let message = Message::new(&[make_ix], Some(&maker.pubkey()));
         let transaction = Transaction::new(&[&maker], message, svm.latest_blockhash());
 
-        svm.send_transaction(transaction).unwrap();
+        let result = svm.send_transaction(transaction);
+        assert!(result.is_err(), "Take must fail with insufficient B tokens");
+
+        let vault_acc = svm.get_account(&vault).unwrap();
+        let vault_state = spl_token_2022::state::Account::unpack(&vault_acc.data).unwrap();
+
+        assert_eq!(vault_state.amount, amount_to_give);
 
         let take_ix = Instruction {
             program_id,
@@ -337,8 +345,7 @@ mod tests {
         assert!(svm.get_account(&vault).is_none());
     }
 
-    #[test]
-    pub fn test_cancel_instruction() {
+    pub fn test_cancel_stranger() {
         let (mut svm, maker) = setup();
 
         let program_id = program_id();
@@ -406,10 +413,15 @@ mod tests {
 
         svm.send_transaction(transaction).unwrap();
 
+        let stranger = Keypair::new();
+
+        svm.airdrop(&stranger.pubkey(), 10 * LAMPORTS_PER_SOL)
+            .expect("Stranger airdrop failed");
+
         let cancel_ix = Instruction {
             program_id,
             accounts: vec![
-                AccountMeta::new(maker.pubkey(), true),
+                AccountMeta::new(stranger.pubkey(), true),
                 AccountMeta::new(mint_a, false),
                 AccountMeta::new(escrow.0, false),
                 AccountMeta::new(vault, false),
@@ -419,11 +431,21 @@ mod tests {
             data: vec![2u8],
         };
 
-        let message = Message::new(&[cancel_ix], Some(&maker.pubkey()));
+        let message = Message::new(&[cancel_ix], Some(&stranger.pubkey()));
 
-        let transaction = Transaction::new(&[&maker], message, svm.latest_blockhash());
+        let transaction = Transaction::new(&[&stranger], message, svm.latest_blockhash());
 
-        svm.send_transaction(transaction).unwrap();
+        let result = svm.send_transaction(transaction);
+
+        assert!(
+            result.is_err(),
+            "A stranger must not be able to cancel the escrow"
+        );
+
+        let vault_acc = svm.get_account(&vault).unwrap();
+        let vault_state = spl_token_2022::state::Account::unpack(&vault_acc.data).unwrap();
+
+        assert_eq!(vault_state.amount, amount_to_give);
 
         let maker_account = svm.get_account(&maker_ata_a).unwrap();
 
