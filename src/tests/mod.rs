@@ -61,7 +61,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
 
     pub fn test_make_instruction() {
         let (mut svm, payer) = setup();
@@ -300,7 +299,7 @@ mod tests {
         let transaction = Transaction::new(&[&maker], message, svm.latest_blockhash());
 
         let result = svm.send_transaction(transaction);
-        assert!(result.is_err(), "Take must fail with insufficient B tokens");
+        assert!(result.is_ok(), "Make must succeed");
 
         let vault_acc = svm.get_account(&vault).unwrap();
         let vault_state = spl_token_2022::state::Account::unpack(&vault_acc.data).unwrap();
@@ -329,22 +328,21 @@ mod tests {
         let message = Message::new(&[take_ix], Some(&taker.pubkey()));
         let transaction = Transaction::new(&[&taker], message, svm.latest_blockhash());
 
-        svm.send_transaction(transaction).unwrap();
+        let take_result = svm.send_transaction(transaction);
+        assert!(
+            take_result.is_err(),
+            "Take must fail with insufficient B tokens"
+        );
 
-        let taker_a_account = svm.get_account(&taker_ata_a).unwrap();
-        let taker_a_state = spl_token_2022::state::Account::unpack(&taker_a_account.data).unwrap();
+        let vault_acc = svm.get_account(&vault).unwrap();
+        let vault_state = spl_token_2022::state::Account::unpack(&vault_acc.data).unwrap();
+        assert_eq!(vault_state.amount, amount_to_give);
 
-        assert_eq!(taker_a_state.amount, amount_to_give);
-
-        let maker_b_account = svm.get_account(&maker_ata_b).unwrap();
-        let maker_b_state = spl_token_2022::state::Account::unpack(&maker_b_account.data).unwrap();
-
-        assert_eq!(maker_b_state.amount, amount_to_receive);
-
-        assert!(svm.get_account(&escrow.0).is_none());
-        assert!(svm.get_account(&vault).is_none());
+        assert!(svm.get_account(&escrow.0).is_some());
+        assert!(svm.get_account(&vault).is_some());
     }
 
+    #[test]
     pub fn test_cancel_stranger() {
         let (mut svm, maker) = setup();
 
@@ -451,9 +449,9 @@ mod tests {
 
         let maker_state = spl_token_2022::state::Account::unpack(&maker_account.data).unwrap();
 
-        assert_eq!(maker_state.amount, 1_000_000_000);
+        assert_eq!(maker_state.amount, 500_000_000);
 
-        assert!(svm.get_account(&escrow.0).is_none());
-        assert!(svm.get_account(&vault).is_none());
+        assert!(svm.get_account(&escrow.0).is_some());
+        assert!(svm.get_account(&vault).is_some());
     }
 }
